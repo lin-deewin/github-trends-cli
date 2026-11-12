@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7fb">
+  <meta name="description" content="GitHub 开源项目增长趋势分析">
+  <title>GitHub Pulse · 开源趋势</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="GitHub Pulse 首页">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5a9.5 9.5 0 0 0-3 18.51c.47.09.65-.2.65-.46v-1.63c-2.65.58-3.21-1.12-3.21-1.12-.43-1.1-1.06-1.39-1.06-1.39-.87-.6.07-.59.07-.59.96.07 1.46.98 1.46.98.85 1.46 2.23 1.04 2.77.8.09-.62.33-1.04.6-1.28-2.12-.24-4.35-1.06-4.35-4.72 0-1.04.37-1.89.98-2.56-.1-.24-.43-1.21.1-2.52 0 0 .8-.26 2.61.98a9.1 9.1 0 0 1 4.76 0c1.81-1.24 2.6-.98 2.6-.98.53 1.31.2 2.28.1 2.52.61.67.98 1.52.98 2.56 0 3.67-2.23 4.47-4.36 4.71.34.3.64.87.64 1.76v2.48c0 .26.17.56.65.46A9.5 9.5 0 0 0 12 2.5Z"/></svg></span>
+        <span class="brand-copy"><strong>GitHub Pulse</strong><small>OPEN SOURCE INTELLIGENCE</small></span>
+      </a>
+      <div class="topbar-right">
+        <span class="live-dot"></span><span class="topbar-status" id="connection-label">本地数据已连接</span>
+        <span class="topbar-divider"></span>
+        <span class="updated-label" id="last-updated">等待数据</span>
+        <button class="icon-button refresh-button" id="refresh-button" title="立即采集最新数据" aria-label="立即采集"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.6 9a7 7 0 0 1 11.7-2L20 12M4 12l2.7 5a7 7 0 0 0 11.7-2"/></svg></button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <section class="hero-row">
+        <div>
+          <div class="eyebrow"><span class="eyebrow-line"></span> GITHUB REPOSITORY TRENDS</div>
+          <h1>发现正在增长的<span>开源项目</span></h1>
+          <p class="hero-subtitle">追踪 Star 增长，识别技术趋势。用数据发现下一个值得关注的项目。</p>
+        </div>
+        <div class="hero-date"><span class="date-label">数据统计截止</span><strong id="report-date">—</strong><span class="utc-label">UTC · 完整自然日</span></div>
+      </section>
+
+      <section class="metrics-grid" aria-label="数据概览">
+        <article class="metric-card"><div class="metric-top"><span>监控项目</span><span class="metric-icon icon-violet">▦</span></div><strong id="metric-repos">—</strong><small>已发现并持续追踪</small></article>
+        <article class="metric-card"><div class="metric-top"><span>周期新增 Star</span><span class="metric-icon icon-blue">★</span></div><strong id="metric-growth">—</strong><small id="metric-period-label">最近 7 天</small></article>
+        <article class="metric-card"><div class="metric-top"><span>日均新增 Star</span><span class="metric-icon icon-green">↗</span></div><strong id="metric-daily">—</strong><small>所选周期内的平均值</small></article>
+        <article class="metric-card"><div class="metric-top"><span>可参与排名</span><span class="metric-icon icon-orange">◎</span></div><strong id="metric-ranked">—</strong><small id="metric-missing">等待完整历史数据</small></article>
+      </section>
+
+      <section class="toolbar-section">
+        <div class="section-heading"><div><h2>增长排行榜</h2><p>按所选周期内新增 Star 排序</p></div><div class="period-switch" role="group" aria-label="统计周期">
+          <button class="period-button" data-period="3d">3 天</button><button class="period-button active" data-period="7d">7 天</button><button class="period-button" data-period="1m">1 个月</button><button class="period-button" data-period="3m">3 个月</button>
+        </div></div>
+        <div class="filter-row">
+          <label class="search-box"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></svg><input id="search-input" type="search" placeholder="搜索项目、技术栈或关键词…" autocomplete="off"></label>
+          <label class="select-wrap"><span>分类</span><select id="category-filter"><option value="">全部分类</option></select></label>
+          <label class="select-wrap"><span>语言</span><select id="language-filter"><option value="">全部语言</option></select></label>
+          <span class="result-count" id="result-count">— 个项目</span>
+        </div>
+      </section>
+
+      <section class="table-card" aria-label="项目排行榜">
+        <div class="table-scroll"><table><thead><tr><th class="rank-col">排名</th><th>项目</th><th>分类</th><th>语言</th><th class="number-col">总 Star</th><th class="number-col">新增 Star</th><th class="trend-col">增长趋势</th><th></th></tr></thead><tbody id="repo-table"><tr><td colspan="8" class="empty-cell"><span class="loader"></span>正在读取本地数据…</td></tr></tbody></table></div>
+        <div class="table-footer"><span id="table-footnote">统计口径：GitHub 官方日级 Star 历史数据；不含当天未完成数据。</span><span id="data-coverage"></span></div>
+      </section>
+      <footer class="page-footer"><span>GitHub Pulse <span class="footer-dot">·</span> 本地运行，数据保存在 SQLite</span><span>数据来源 GitHub · 统计范围为已发现的仓库</span></footer>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+  <aside class="detail-drawer" id="detail-drawer" aria-hidden="true" aria-labelledby="detail-title">
+    <div class="drawer-header"><div><span class="drawer-kicker">REPOSITORY INSIGHT</span><span class="drawer-rank" id="detail-rank">PROJECT DETAILS</span></div><button class="icon-button close-button" id="close-drawer" aria-label="关闭详情"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <div class="drawer-content" id="drawer-content">
+      <div class="detail-project-head"><div class="repo-avatar" id="detail-avatar">GH</div><div class="detail-title-wrap"><h2 id="detail-title">项目名称</h2><a id="detail-url" href="#" target="_blank" rel="noopener noreferrer">打开 GitHub 仓库 ↗</a></div></div>
+      <p class="detail-description" id="detail-description"></p>
+      <div class="detail-tags" id="detail-tags"></div>
+      <div class="detail-stat-grid"><div><span>累计 Star</span><strong id="detail-stars">—</strong></div><div><span>周期新增</span><strong id="detail-growth">—</strong></div><div><span>日均增长</span><strong id="detail-average">—</strong></div></div>
+      <section class="chart-section"><div class="chart-heading"><div><h3>Star 增长时间线</h3><p id="chart-caption">每天新增 Star 数量</p></div><div class="chart-legend"><span><i class="legend-bar"></i>每日新增</span><span><i class="legend-line"></i>移动平均</span></div></div><div class="chart-wrap" id="growth-chart"><div class="chart-loading">正在加载增长曲线…</div></div><div class="chart-axis-labels"><span id="chart-start">—</span><span id="chart-end">—</span></div><div class="chart-note" id="chart-note">—</div></section>
+      <div class="detail-meta"><div><span>项目分类</span><strong id="detail-category">—</strong></div><div><span>主要语言</span><strong id="detail-language">—</strong></div><div><span>Fork</span><strong id="detail-forks">—</strong></div><div><span>创建时间</span><strong id="detail-created">—</strong></div></div>
+      <div class="detail-topics-title">TOPICS</div><div class="detail-topics" id="detail-topics"></div>
+    </div>
+  </aside>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

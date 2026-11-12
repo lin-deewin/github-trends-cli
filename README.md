@@ -1,8 +1,65 @@
-# GitHub Trends CLI · 六周期开源项目热度统计
+# GitHub Trends CLI + Web · 开源项目增长趋势
 
-只用 **Python 3.10+ 标准库 + SQLite**，命令行统计 GitHub 热门项目的新增 Star，支持 **1 / 3 / 7 / 30 / 90 / 180 天**。无需安装第三方包，不需要网页或部署服务器。
+在原有 Python + SQLite 采集器上增加本地 Web 仪表盘。支持 **3 天 / 7 天 / 1 个月 / 3 个月** 四个排行榜周期，点击任意项目即可查看每日新增 Star 柱状图和移动平均增长曲线。无需 Node.js、npm 或第三方 Python 包。
 
-## 1. 启动（Windows / macOS / Linux）
+## Web 仪表盘（推荐）
+
+```bash
+# 可选：配置 GitHub Token，提升 API 限额
+export GITHUB_TOKEN="你的 GitHub Token"       # Linux / macOS
+# PowerShell: $env:GITHUB_TOKEN="你的 GitHub Token"
+
+# 启动本地网站
+python web.py
+```
+
+浏览器打开 **http://127.0.0.1:8765**。右上角的刷新按钮会启动一次项目发现和历史 Star 采集；采集完成后页面自动刷新。也可以先在终端执行：
+
+```bash
+python ghtrend.py doctor
+python ghtrend.py update --limit 30
+python web.py
+```
+
+Web 页面提供：
+- 3 天、7 天、30 天、90 天增长排行榜；按新增 Star 排序。
+- 项目搜索、分类筛选、编程语言筛选。
+- 项目详情抽屉：GitHub URL、简介、Topics、累计 Star、Fork、日均增长。
+- 增长时间线：每日新增 Star 柱状图 + 7 日移动平均线（3 天周期使用 3 日移动平均）。
+- 数据缺失会明确显示，不会将未采集日期伪装成 0。
+- 复用现有 `ghtrend.sqlite3`，不会覆盖或删除历史数据。
+
+默认仅监听 `127.0.0.1`，只供本机访问。不要在不可信网络中直接使用 `--host 0.0.0.0` 暴露服务。
+
+## 项目文件
+
+| 文件 | 作用 |
+|---|---|
+| `ghtrend.py` | GitHub 数据采集、历史存储和排行榜计算 |
+| `web.py` | 标准库 HTTP 服务与 JSON API |
+| `web/index.html` | Web 页面结构 |
+| `web/styles.css` | 响应式界面样式 |
+| `web/app.js` | 排行榜交互与 SVG 增长图表 |
+| `ghtrend.sqlite3` | 本地 SQLite 数据库，首次采集后生成 |
+| `tests/` | 自动化测试 |
+
+## 命令行模式
+
+原有 CLI 仍然保留，以下命令继续可用：
+
+```bash
+python ghtrend.py update --limit 30
+python ghtrend.py report
+python ghtrend.py top --days 30
+python -m unittest discover -s tests -v
+```
+
+---
+
+
+采集和存储层使用 **Python 3.10+ 标准库 + SQLite**；Web 服务与前端也不依赖第三方框架。原有 CLI 保留，支持 **1 / 3 / 7 / 30 / 90 / 180 天** 的命令行统计。
+
+## 1. CLI 采集与初始化（Windows / macOS / Linux）
 
 ```bash
 # 进入解压后的项目目录
@@ -112,7 +169,9 @@ python -m unittest discover -s tests -v
 
 | 文件 | 作用 |
 |---|---|
-| `ghtrend.py` | 整个命令行程序（无第三方依赖） |
+| `ghtrend.py` | GitHub 采集、存储和 CLI 统计（无第三方依赖） |
+| `web.py` | 本地 Web 服务和 JSON API |
+| `web/` | 仪表盘前端资源 |
 | `ghtrend.sqlite3` | 首次运行后生成，本地持久化数据（含仓库简介、Topics 与历史 Star） |
 | `tests/test_ghtrend.py` | 解析/历史周期/数据库测试 |
 | `.github/workflows/daily.yml` | 可选 GitHub Actions 每天运行 |
