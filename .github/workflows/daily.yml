@@ -54,7 +54,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ghtrend.sqlite3
-          key: github-trends-db-\${{ github.run_id }}
+          key: github-trends-db-${{ github.run_id }}
           restore-keys: |
             github-trends-db-
 
@@ -65,9 +65,9 @@ jobs:
 
       - name: Collect repositories and Star history
         env:
-          GITHUB_TOKEN: \${{ secrets.GH_TREND_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.GH_TREND_TOKEN || github.token }}
         run: |
-          LIMIT="\${{ inputs.limit || '30' }}"
+          LIMIT="${{ inputs.limit || '30' }}"
           python ghtrend.py update --limit "$LIMIT"
 
       - name: Checkpoint SQLite database
@@ -90,7 +90,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ghtrend.sqlite3
-          key: github-trends-db-\${{ github.run_id }}
+          key: github-trends-db-${{ github.run_id }}
 
       - name: Build GitHub Pages static website
         run: python build_site.py --db ghtrend.sqlite3 --output dist --limit 500
@@ -98,7 +98,7 @@ jobs:
       - name: Upload report and SQLite snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: github-trends-\${{ github.run_id }}
+          name: github-trends-${{ github.run_id }}
           path: |
             daily-report.txt
             ghtrend.sqlite3
@@ -116,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: \${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy static website
         id: deployment
