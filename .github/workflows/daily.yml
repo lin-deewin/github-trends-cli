@@ -1,0 +1,42 @@
+name: GitHub Trends Daily
+on:
+  workflow_dispatch:
+  schedule:
+    # 00:15 UTC = 08:15 in mainland China
+    - cron: "15 0 * * *"
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore SQLite snapshot data
+        uses: actions/cache/restore@v4
+        with:
+          path: ghtrend.sqlite3
+          key: github-trends-db-${{ github.run_id }}
+          restore-keys: |
+            github-trends-db-
+      - name: Collect Star histories
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TREND_TOKEN || github.token }}
+        run: python ghtrend.py update --limit 30
+      - name: Save report
+        run: python ghtrend.py report > daily-report.txt
+      - name: Save SQLite cache
+        uses: actions/cache/save@v4
+        with:
+          path: ghtrend.sqlite3
+          key: github-trends-db-${{ github.run_id }}
+      - name: Upload reports and database
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-trends-${{ github.run_id }}
+          path: |
+            daily-report.txt
+            ghtrend.sqlite3
+          retention-days: 30
