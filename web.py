@@ -22,7 +22,25 @@ PERIODS = {"3d": 3, "7d": 7, "1m": 30, "3m": 90}
 REFRESH_LOCK = threading.Lock()
 REFRESH_STATE = {
     "running": False, "started_at": None, "finished_at": None,
-    "returncode": None, "output": "",
+    "returncode": None, "output": "", "trigger": None,
+}
+
+DEFAULT_INTERVAL_HOURS = 2
+SCHEDULER_LOCK = threading.Lock()
+SCHEDULER_STOP = threading.Event()
+SCHEDULER_THREAD = None
+SCHEDULER_STATE = {
+    "enabled": False,
+    "interval_hours": DEFAULT_INTERVAL_HOURS,
+    "interval_seconds": DEFAULT_INTERVAL_HOURS * 60 * 60,
+    "limit": 30,
+    "started_at": None,
+    "next_run_at": None,
+    "last_scheduled_at": None,
+    "last_finished_at": None,
+    "last_returncode": None,
+    "last_outcome": None,
+    "last_output": "",
 }
 
 
@@ -176,7 +194,7 @@ def build_repo_detail(con, full_name: str, period="7d", *, today=None):
     }
 
 
-def _run_collector(limit=30, db_path=None):
+def _run_collector(limit=30, db_path=None, trigger="manual"):
     command = [sys.executable, str(BASE_DIR / "ghtrend.py")]
     if db_path:
         command.extend(["--db", str(db_path)])
@@ -195,10 +213,19 @@ def _run_collector(limit=30, db_path=None):
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "returncode": returncode,
             "output": (output or "")[-12000:],
+            "trigger": trigger,
         })
+    if trigger == "scheduled":
+        with SCHEDULER_LOCK:
+            SCHEDULER_STATE.update({
+                "last_finished_at": datetime.now(timezone.utc).isoformat(),
+                "last_returncode": returncode,
+                "last_outcome": "success" if returncode == 0 else "failed",
+                "last_output": (output or "")[-4000:],
+            })
 
 
-def start_refresh(limit=30, db_path=None):
+def start_refresh(limit=30, db_path=None, trigger="manual"):
     with REFRESH_LOCK:
         if REFRESH_STATE["running"]:
             return False
@@ -208,10 +235,84 @@ def start_refresh(limit=30, db_path=None):
             "finished_at": None,
             "returncode": None,
             "output": "采集任务已启动……",
+            "trigger": trigger,
         })
-    thread = threading.Thread(target=_run_collector, args=(limit, db_path), daemon=True)
+    thread = threading.Thread(target=_run_collector, args=(limit, db_path, trigger), daemon=True)
     thread.start()
     return True
+
+
+def _scheduler_loop(interval_seconds, limit, db_path):
+    """Run one collection immediately, then repeat at a fixed interval."""
+    while not SCHEDULER_STOP.is_set():
+        now = datetime.now(timezone.utc)
+        next_run = now + timedelta(seconds=interval_seconds)
+        with SCHEDULER_LOCK:
+            SCHEDULER_STATE["last_scheduled_at"] = now.isoformat()
+            SCHEDULER_STATE["next_run_at"] = next_run.isoformat()
+
+        if not start_refresh(limit, db_path, trigger="scheduled"):
+            with SCHEDULER_LOCK:
+                SCHEDULER_STATE.update({
+                    "last_outcome": "skipped_busy",
+                    "last_output": "上一次采集任务仍在运行，本次定时采集已跳过。",
+                })
+
+        if SCHEDULER_STOP.wait(interval_seconds):
+            break
+
+    with SCHEDULER_LOCK:
+        SCHEDULER_STATE["enabled"] = False
+        SCHEDULER_STATE["next_run_at"] = None
+
+
+def start_scheduler(interval_hours=DEFAULT_INTERVAL_HOURS, limit=30, db_path=None):
+    """Start the in-process scheduler; first collection runs immediately."""
+    global SCHEDULER_THREAD
+    try:
+        interval_hours = int(interval_hours)
+        limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("interval_hours and limit must be integers") from exc
+    if not 1 <= interval_hours <= 168:
+        raise ValueError("interval_hours must be between 1 and 168")
+
+    with SCHEDULER_LOCK:
+        if SCHEDULER_THREAD and SCHEDULER_THREAD.is_alive():
+            return False
+        SCHEDULER_STOP.clear()
+        SCHEDULER_STATE.update({
+            "enabled": True,
+            "interval_hours": interval_hours,
+            "interval_seconds": interval_hours * 60 * 60,
+            "limit": limit,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "next_run_at": None,
+            "last_outcome": None,
+        })
+        SCHEDULER_THREAD = threading.Thread(
+            target=_scheduler_loop,
+            args=(interval_hours * 60 * 60, limit, db_path),
+            name="github-trends-scheduler",
+            daemon=True,
+        )
+        SCHEDULER_THREAD.start()
+    return True
+
+
+def stop_scheduler():
+    SCHEDULER_STOP.set()
+    thread = SCHEDULER_THREAD
+    if thread and thread.is_alive():
+        thread.join(timeout=2)
+
+
+def scheduler_status_payload():
+    with SCHEDULER_LOCK:
+        scheduler = dict(SCHEDULER_STATE)
+    with REFRESH_LOCK:
+        refresh = dict(REFRESH_STATE)
+    return {"scheduler": scheduler, "refresh": refresh}
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -279,6 +380,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             with REFRESH_LOCK:
                 self._send(200, dict(REFRESH_STATE))
             return
+        if parsed.path == "/api/scheduler-status":
+            self._send(200, scheduler_status_payload())
+            return
         if parsed.path == "/api/health":
             con = ghtrend.open_db(self.db_path)
             try:
@@ -334,16 +438,28 @@ def main(argv=None):
     parser.add_argument("--host", default="127.0.0.1", help="Bind address (default: localhost only)")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--db", default=ghtrend.default_db(), help="SQLite database path")
+    parser.add_argument(
+        "--interval-hours", type=int, default=DEFAULT_INTERVAL_HOURS,
+        help="Automatic collection interval in hours (default: 2)",
+    )
+    parser.add_argument("--limit", type=int, default=30, help="Repositories to discover/update per run")
     args = parser.parse_args(argv)
+    if not 1 <= args.interval_hours <= 168:
+        parser.error("--interval-hours must be between 1 and 168")
+    if not 1 <= args.limit <= 100:
+        parser.error("--limit must be between 1 and 100")
     server = make_server(args.host, args.port, args.db)
+    start_scheduler(args.interval_hours, args.limit, args.db)
     print(f"GitHub Trends Web is running: http://{args.host}:{args.port}")
     print(f"SQLite database: {args.db}")
+    print(f"Automatic collection: immediately on startup, then every {args.interval_hours} hour(s) (limit={args.limit})")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping web server…")
     finally:
+        stop_scheduler()
         server.server_close()
     return 0
 

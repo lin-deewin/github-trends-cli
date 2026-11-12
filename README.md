@@ -13,7 +13,21 @@ export GITHUB_TOKEN="你的 GitHub Token"       # Linux / macOS
 python web.py
 ```
 
-浏览器打开 **http://127.0.0.1:8765**。右上角的刷新按钮会启动一次项目发现和历史 Star 采集；采集完成后页面自动刷新。也可以先在终端执行：
+浏览器打开 **http://127.0.0.1:8765**。Web 服务启动后会立即执行一次采集，之后**每 2 小时自动采集一次**；不需要另外配置 cron。页面右上角会显示定时任务状态、上次结果和下次运行时间。右上角的刷新按钮仍可随时手动触发采集，手动任务与定时任务共用互斥锁，不会并发写入数据库。
+
+定时任务只在 `web.py` 进程运行期间有效。关闭终端或停止 Web 服务后，任务也会停止；需要长期运行时，建议用 systemd、macOS launchd 或 Windows 任务计划程序让 Web 服务常驻。
+
+可选参数：
+
+```bash
+# 默认每 2 小时自动采集，首次启动立即采集
+python web.py
+
+# 改为每 3 小时采集，每轮最多发现/更新 50 个项目
+python web.py --interval-hours 3 --limit 50
+```
+
+也可以先在终端执行：
 
 ```bash
 python ghtrend.py doctor
@@ -26,6 +40,9 @@ Web 页面提供：
 - 项目搜索、分类筛选、编程语言筛选。
 - 项目详情抽屉：GitHub URL、简介、Topics、累计 Star、Fork、日均增长。
 - 增长时间线：每日新增 Star 柱状图 + 7 日移动平均线（3 天周期使用 3 日移动平均）。
+- 内置后台调度器：启动时立即采集，默认每 2 小时自动更新；可通过 `--interval-hours` 调整。
+- 顶栏显示自动采集状态、下次执行时间、上次完成时间和执行结果。
+- 手动刷新与定时任务互斥，避免重复采集并发写数据库。
 - 数据缺失会明确显示，不会将未采集日期伪装成 0。
 - 复用现有 `ghtrend.sqlite3`，不会覆盖或删除历史数据。
 
@@ -139,9 +156,15 @@ python ghtrend.py top --days 7 --source snapshot
 - 本项目只统计“**已发现/已监控仓库**”的相对排名，**不是 GitHub 全站的严格 Top 100**。广泛覆盖需要接入 GH Archive 等全站事件数据源。
 - Trending 页面能返回的仓库数可能有限；程序不会声称每次一定发现几百个项目。已经监控的项目在下次更新时也可能因 `--limit` 太小而未被刷新。
 
-## 5. 每天自动采集
+## 5. 自动采集调度
 
-Linux / macOS 定时任务（`crontab -e`），在早上 08:15（中国时区）执行：
+Web 模式已经内置后台定时任务：启动 Web 服务时立即执行一次，之后默认每 2 小时执行一次。修改间隔示例：
+
+```bash
+python web.py --interval-hours 2 --limit 30
+```
+
+如果只使用 CLI、不启动 Web 服务，可使用 Linux / macOS 定时任务（`crontab -e`），例如每天早上 08:15（中国时区）执行：
 
 ```cron
 CRON_TZ=Asia/Shanghai
@@ -170,7 +193,7 @@ python -m unittest discover -s tests -v
 | 文件 | 作用 |
 |---|---|
 | `ghtrend.py` | GitHub 采集、存储和 CLI 统计（无第三方依赖） |
-| `web.py` | 本地 Web 服务和 JSON API |
+| `web.py` | 本地 Web 服务、JSON API 和每 2 小时后台调度器 |
 | `web/` | 仪表盘前端资源 |
 | `ghtrend.sqlite3` | 首次运行后生成，本地持久化数据（含仓库简介、Topics 与历史 Star） |
 | `tests/test_ghtrend.py` | 解析/历史周期/数据库测试 |

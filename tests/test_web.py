@@ -2,7 +2,9 @@
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 import ghtrend
 import web
@@ -65,6 +67,69 @@ class WebDashboardTest(unittest.TestCase):
         self.assertEqual(len(detail["series"]), 3)
         self.assertEqual(detail["series"][0]["moving_average"], 2.0)
         self.assertEqual(detail["series"][-1]["moving_average"], 3.0)
+
+
+    def test_scheduler_defaults_to_two_hours(self):
+        self.assertEqual(web.DEFAULT_INTERVAL_HOURS, 2)
+        self.assertEqual(web.SCHEDULER_STATE["interval_seconds"], 2 * 60 * 60)
+        payload = web.scheduler_status_payload()
+        self.assertEqual(payload["scheduler"]["interval_hours"], 2)
+        self.assertIn("refresh", payload)
+
+    def test_scheduler_rejects_invalid_interval(self):
+        with self.assertRaises(ValueError):
+            web.start_scheduler(0, db_path=str(Path(self.tmp.name) / "unused.db"))
+        with self.assertRaises(ValueError):
+            web.start_scheduler(169, db_path=str(Path(self.tmp.name) / "unused.db"))
+
+    def test_scheduler_runs_immediately_then_waits_for_interval(self):
+        class StopAfterOneWait:
+            def __init__(self):
+                self.stopped = False
+                self.waited = None
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, seconds):
+                self.waited = seconds
+                self.stopped = True
+                return True
+
+        stop = StopAfterOneWait()
+        previous_stop = web.SCHEDULER_STOP
+        try:
+            web.SCHEDULER_STOP = stop
+            with patch.object(web, "start_refresh", return_value=True) as start:
+                web._scheduler_loop(7200, 30, str(Path(self.tmp.name) / "web.db"))
+            start.assert_called_once_with(30, str(Path(self.tmp.name) / "web.db"), trigger="scheduled")
+            self.assertEqual(stop.waited, 7200)
+            self.assertFalse(web.SCHEDULER_STATE["enabled"])
+        finally:
+            web.SCHEDULER_STOP = previous_stop
+
+    def test_scheduler_skips_tick_when_another_collection_is_running(self):
+        class StopAfterOneWait:
+            def __init__(self):
+                self.stopped = False
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, seconds):
+                self.stopped = True
+                return True
+
+        stop = StopAfterOneWait()
+        previous_stop = web.SCHEDULER_STOP
+        try:
+            web.SCHEDULER_STOP = stop
+            with patch.object(web, "start_refresh", return_value=False) as start:
+                web._scheduler_loop(7200, 30, str(Path(self.tmp.name) / "web.db"))
+            start.assert_called_once_with(30, str(Path(self.tmp.name) / "web.db"), trigger="scheduled")
+            self.assertEqual(web.SCHEDULER_STATE["last_outcome"], "skipped_busy")
+        finally:
+            web.SCHEDULER_STOP = previous_stop
 
     def test_detail_rejects_unknown_repository(self):
         with self.assertRaises(KeyError):

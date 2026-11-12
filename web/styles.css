@@ -98,6 +98,17 @@ body {
 .updated-label {
     font-variant-numeric:tabular-nums
 }
+.scheduler-label {
+    color:#258765;
+    background:#eaf7f1;
+    border:1px solid #d9f0e5;
+    border-radius:999px;
+    padding:6px 10px;
+    font-size:10px;
+    font-weight:700;
+    white-space:nowrap;
+    font-variant-numeric:tabular-nums
+}
 .icon-button {
     border:0;
     background:transparent;
@@ -846,7 +857,7 @@ tbody tr:last-child td {
         height:64px;
         padding:0 16px
     }
-    .topbar-status,.topbar-divider,.updated-label {
+    .topbar-status,.topbar-divider,.updated-label,.scheduler-label {
         display:none
     }
     .main-content {

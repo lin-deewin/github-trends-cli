@@ -1,4 +1,4 @@
-const state = { period: '7d', search: '', category: '', language: '', rows: [], selected: null, refreshPoll: null };
+const state = { period: '7d', search: '', category: '', language: '', rows: [], selected: null, refreshPoll: null, schedulerPoll: null, lastRefreshFinishedAt: null };
 const $ = (id) => document.getElementById(id);
 const number = (value) => Number(value || 0).toLocaleString('en-US');
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -175,6 +175,45 @@ async function pollRefresh() {
   },1800);
 }
 
+
+async function loadSchedulerStatus() {
+  try {
+    const response = await fetch('/api/scheduler-status');
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || '定时任务状态读取失败');
+    const scheduler = payload.scheduler || {};
+    const refresh = payload.refresh || {};
+    const label = $('scheduler-label');
+    const next = scheduler.next_run_at ? new Date(scheduler.next_run_at) : null;
+    const nextText = next && !Number.isNaN(next.getTime())
+      ? next.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit', hour12:false})
+      : '待安排';
+
+    if (!scheduler.enabled) label.textContent = '自动采集未启动';
+    else if (refresh.running) label.textContent = refresh.trigger === 'scheduled' ? '正在定时采集' : '正在手动采集';
+    else label.textContent = `每 ${scheduler.interval_hours || 2} 小时自动采集 · 下次 ${nextText}`;
+
+    const last = scheduler.last_finished_at
+      ? new Date(scheduler.last_finished_at).toLocaleString('zh-CN', {hour12:false})
+      : '尚无完成记录';
+    const outcome = scheduler.last_outcome === 'success' ? '成功'
+      : scheduler.last_outcome === 'failed' ? '失败'
+      : scheduler.last_outcome === 'skipped_busy' ? '因已有任务运行而跳过'
+      : '等待首次运行';
+    label.title = `定时任务：${scheduler.enabled ? '已启用' : '未启动'}；间隔：${scheduler.interval_hours || 2} 小时；上次结果：${outcome}；上次完成：${last}`;
+
+    if (refresh.trigger === 'scheduled' && !refresh.running && refresh.finished_at
+        && refresh.finished_at !== state.lastRefreshFinishedAt && refresh.returncode === 0) {
+      await loadDashboard();
+      if (state.selected) await openDetail(state.selected);
+      showToast(refresh.trigger === 'scheduled' ? '定时采集完成，排行榜已更新' : '采集完成，排行榜已更新');
+    }
+    if (refresh.finished_at) state.lastRefreshFinishedAt = refresh.finished_at;
+  } catch (_) {
+    $('scheduler-label').textContent = '定时任务状态未知';
+  }
+}
+
 function bindEvents() {
   document.querySelectorAll('.period-button').forEach(button=>button.addEventListener('click',async()=>{
     if (state.period===button.dataset.period) return;
@@ -190,4 +229,7 @@ function bindEvents() {
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDrawer();});
 }
 
-bindEvents(); loadDashboard();
+bindEvents();
+loadDashboard();
+loadSchedulerStatus();
+state.schedulerPoll = setInterval(loadSchedulerStatus, 15000);
