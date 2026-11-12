@@ -176,8 +176,11 @@ def build_repo_detail(con, full_name: str, period="7d", *, today=None):
     }
 
 
-def _run_collector(limit=30):
-    command = [sys.executable, str(BASE_DIR / "ghtrend.py"), "update", "--limit", str(limit)]
+def _run_collector(limit=30, db_path=None):
+    command = [sys.executable, str(BASE_DIR / "ghtrend.py")]
+    if db_path:
+        command.extend(["--db", str(db_path)])
+    command.extend(["update", "--limit", str(limit)])
     try:
         process = subprocess.Popen(command, cwd=BASE_DIR, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True,
@@ -195,7 +198,7 @@ def _run_collector(limit=30):
         })
 
 
-def start_refresh(limit=30):
+def start_refresh(limit=30, db_path=None):
     with REFRESH_LOCK:
         if REFRESH_STATE["running"]:
             return False
@@ -206,7 +209,7 @@ def start_refresh(limit=30):
             "returncode": None,
             "output": "采集任务已启动……",
         })
-    thread = threading.Thread(target=_run_collector, args=(limit,), daemon=True)
+    thread = threading.Thread(target=_run_collector, args=(limit, db_path), daemon=True)
     thread.start()
     return True
 
@@ -300,10 +303,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             body = self._json_body()
             limit = max(1, min(int(body.get("limit", 30)), 100))
-        except (ValueError, TypeError, json.JSONDecodeError):
+        except (ValueError, TypeError, AttributeError, json.JSONDecodeError):
             self._send(400, {"error": "Invalid request body"})
             return
-        if not start_refresh(limit):
+        if not start_refresh(limit, self.db_path):
             self._send(409, {"error": "A collection job is already running"})
             return
         self._send(202, {"started": True, "message": "Collection started"})
