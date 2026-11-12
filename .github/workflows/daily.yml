@@ -1,6 +1,12 @@
 name: GitHub Trends Collector
 
 on:
+  # Run once when this workflow is added/updated, then continue on the schedule.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/daily.yml
   # GitHub-hosted runners execute the collector every two hours (UTC).
   # Minute 17 avoids the busiest top-of-hour scheduling window.
   schedule:
