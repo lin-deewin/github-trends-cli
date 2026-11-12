@@ -1,42 +1,85 @@
-name: GitHub Trends Daily
+name: GitHub Trends Collector
+
 on:
-  workflow_dispatch:
+  # GitHub-hosted runners execute the collector every two hours (UTC).
+  # Minute 17 avoids the busiest top-of-hour scheduling window.
   schedule:
-    # 00:15 UTC = 08:15 in mainland China
-    - cron: "15 0 * * *"
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Maximum repositories to discover/update"
+        required: false
+        default: "30"
+        type: string
+
 permissions:
   contents: read
+
+concurrency:
+  group: github-trends-collector
+  cancel-in-progress: false
+
 jobs:
   collect:
+    name: Collect GitHub trends
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Restore SQLite snapshot data
+
+      - name: Restore previous SQLite database
         uses: actions/cache/restore@v4
         with:
           path: ghtrend.sqlite3
           key: github-trends-db-${{ github.run_id }}
           restore-keys: |
             github-trends-db-
-      - name: Collect Star histories
+
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Collect repositories and Star history
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TREND_TOKEN || github.token }}
-        run: python ghtrend.py update --limit 30
-      - name: Save report
-        run: python ghtrend.py report > daily-report.txt
-      - name: Save SQLite cache
+        run: |
+          LIMIT="${{ inputs.limit || '30' }}"
+          python ghtrend.py update --limit "$LIMIT"
+
+      - name: Checkpoint SQLite database
+        run: |
+          python - <<'PY'
+          import sqlite3
+          db = sqlite3.connect("ghtrend.sqlite3")
+          try:
+              db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+          finally:
+              db.close()
+          PY
+
+      - name: Generate leaderboard report
+        run: |
+          python ghtrend.py report > daily-report.txt
+          cat daily-report.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save updated SQLite database
         uses: actions/cache/save@v4
         with:
           path: ghtrend.sqlite3
           key: github-trends-db-${{ github.run_id }}
-      - name: Upload reports and database
+
+      - name: Upload report and database snapshot
         uses: actions/upload-artifact@v4
         with:
           name: github-trends-${{ github.run_id }}
           path: |
             daily-report.txt
             ghtrend.sqlite3
-          retention-days: 30
+          if-no-files-found: error
+          retention-days: 7

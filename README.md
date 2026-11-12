@@ -156,24 +156,45 @@ python ghtrend.py top --days 7 --source snapshot
 - 本项目只统计“**已发现/已监控仓库**”的相对排名，**不是 GitHub 全站的严格 Top 100**。广泛覆盖需要接入 GH Archive 等全站事件数据源。
 - Trending 页面能返回的仓库数可能有限；程序不会声称每次一定发现几百个项目。已经监控的项目在下次更新时也可能因 `--limit` 太小而未被刷新。
 
-## 5. 自动采集调度
+## 5. 使用 GitHub Actions 每 2 小时自动采集（推荐）
 
-Web 模式已经内置后台定时任务：启动 Web 服务时立即执行一次，之后默认每 2 小时执行一次。修改间隔示例：
+仓库已配置 `.github/workflows/daily.yml`，由 GitHub 托管的临时 Runner 自动执行采集，无需让自己的电脑保持开机。
 
-```bash
-python web.py --interval-hours 2 --limit 30
-```
+- **运行频率：** 每 2 小时一次，Cron 为 `17 */2 * * *`（UTC；每轮在小时的第 17 分钟触发）。
+- **手动运行：** 打开 GitHub 仓库 → Actions → GitHub Trends Collector → Run workflow。
+- **数据库持久化：** 每次运行先从 Actions Cache 恢复上一轮的 `ghtrend.sqlite3`，采集完成后保存更新后的数据库缓存。
+- **运行报告：** 每轮生成 `daily-report.txt`，并写入该次 Workflow 的 Job Summary。
+- **下载数据：** 每次运行上传报告和 SQLite 数据库快照，Artifact 保留 7 天。
+- **并发保护：** 同一时间只允许一个采集工作流运行，避免数据库状态冲突。
+- **质量检查：** 采集前执行自动化测试；采集后执行 SQLite WAL checkpoint，确保数据库文件可归档。
 
-如果只使用 CLI、不启动 Web 服务，可使用 Linux / macOS 定时任务（`crontab -e`），例如每天早上 08:15（中国时区）执行：
+### GitHub Token 配置
 
-```cron
-CRON_TZ=Asia/Shanghai
-15 8 * * * cd /absolute/path/github-trends-cli && /usr/bin/python3 ghtrend.py update --limit 30 >> cron.log 2>&1
-```
+建议在仓库 Settings → Secrets and variables → Actions → New repository secret 中添加：
 
-> `CRON_TZ` 在不同 cron 实现中支持不一。确保服务器自身时区正确，或使用 systemd timer / GitHub Actions。`/usr/bin/python3` 改成你的实际 Python 路径。
+- Name：`GH_TREND_TOKEN`
+- Value：具有公开仓库只读访问能力的 GitHub Personal Access Token
 
-如使用 GitHub Actions，可参考 `.github/workflows/daily.yml`，它会将 SQLite 数据库和当天报告保存为 Actions Artifact；**不会自动覆盖你的本地数据库**。请在 GitHub 仓库 Settings → Actions 中确认运行权限；新建 Actions 秘钥 `GH_TREND_TOKEN`（非必需但强烈推荐）。该工作流不会自动部署网页，也不需要自己租服务器。
+不配置也可以运行，工作流会回退到 `github.token`，但默认 Token 的 API 限额可能影响采集数量。
+
+### 重要：Actions 不会常驻托管 Python Web 服务
+
+GitHub Actions 每次只启动一个临时 Runner，执行完采集任务就会销毁。因此：
+
+- Actions 可以负责每 2 小时采集、更新数据库和生成报告。
+- `python web.py` 仍然是独立的 Web 服务，需要在本机或其他服务器运行。
+- Actions 中的 SQLite 数据库不会自动同步到你本机的数据库；需要从 Workflow Artifact 下载最新数据库。
+- 如果希望任何人通过公网网址访问仪表盘，需要另外部署 Web 服务，或者将前端改为静态数据站点后使用 GitHub Pages。不能把 Actions 当作 24 小时 Web 主机。
+
+### 手动触发
+
+1. 打开仓库的 Actions 标签页。
+2. 选择 **GitHub Trends Collector**。
+3. 点击 **Run workflow**。
+4. 可选填写本轮最大采集项目数，默认 30。
+5. 在运行详情的 Summary 查看排行榜，在 Artifacts 下载报告和 SQLite 数据库。
+
+本机 Web 服务的内置定时器仍然可用：`python web.py` 启动时立即采集，之后默认每 2 小时采集一次。若已经改用 Actions 作为唯一采集端，就不要同时依赖本机定时器作为同一份数据库的后台任务；两边数据库互不共享。
 
 ## 6. 常见故障
 
