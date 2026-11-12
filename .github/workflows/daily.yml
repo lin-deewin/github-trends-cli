@@ -45,11 +45,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
       - name: Restore previous SQLite database
         uses: actions/cache/restore@v4
         with:
