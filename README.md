@@ -1,52 +1,61 @@
-# GitHub Trends CLI + Web · 开源项目增长趋势
+# GitHub Trends · GitHub Pages 静态仪表盘
 
-在原有 Python + SQLite 采集器上增加本地 Web 仪表盘。支持 **3 天 / 7 天 / 1 个月 / 3 个月** 四个排行榜周期，点击任意项目即可查看每日新增 Star 柱状图和移动平均增长曲线。无需 Node.js、npm 或第三方 Python 包。
+自动发现 GitHub 热门开源项目，追踪 Star 增长。**GitHub Actions 每 2 小时采集一次数据，并自动构建、部署 GitHub Pages 网站。** 不需要本地电脑常开、不需要 VPS、不需要常驻 Python Web 服务。
 
-## Web 仪表盘（推荐）
+## 在线仪表盘
+
+**网站：** https://lin-deewin.github.io/github-trends-cli/
+
+支持 3 天、7 天、1 个月、3 个月四个增长排行榜周期。点击项目可查看 GitHub URL、简介、分类、Topics、累计 Star、Fork，以及每日新增 Star 和移动平均增长曲线。
+
+- 搜索项目、按分类和主要语言筛选。
+- 每个项目显示最近 7 天增长迷你曲线。
+- 项目详情显示所选周期的 Star 增长时间线。
+- 页面数据由 Actions 生成静态 JSON，浏览器直接读取，无需后端 API。
+- 页面右上角的“Actions 自动更新”显示自动采集机制；刷新图标可打开 Actions 页面手动触发新一轮采集。
+
+## 自动采集与部署
+
+工作流文件：`.github/workflows/daily.yml`
+
+- 每 2 小时运行一次：Cron `17 */2 * * *`（UTC）。
+- 每轮恢复上一轮 SQLite 缓存，发现和更新最多 30 个仓库（可在手动运行时调整）。
+- 下载 GitHub Star 历史、保存快照，生成四个周期的排行榜和所有监控项目详情。
+- 构建 `dist/` 静态网站，并自动部署到 GitHub Pages。
+- 每次运行还会上传报告和 SQLite 数据库 Artifact，保留 7 天。
+- 同一时间只运行一轮部署工作流，避免数据库缓存和网站部署互相覆盖。
+- 推送工作流、采集器、前端或测试文件到 main，也会自动触发构建和部署。
+
+### GitHub Token（推荐）
+
+在仓库 Settings → Secrets and variables → Actions → New repository secret 中添加：
+
+- Name：`GH_TREND_TOKEN`
+- Value：具有公开仓库只读访问能力的 GitHub Personal Access Token
+
+不配置也能运行，工作流会回退到 `github.token`，但默认 Token 的 API 限额可能影响采集数量。
+
+### 手动触发采集与部署
+
+1. 打开 [GitHub Actions](https://github.com/lin-deewin/github-trends-cli/actions)。
+2. 选择 **GitHub Trends Collector & Pages**。
+3. 点击 **Run workflow**，默认每轮最多处理 30 个项目。
+4. 等待 Build 和 Deploy 两个 Job 成功。
+5. 打开 [在线仪表盘](https://lin-deewin.github.io/github-trends-cli/) 查看最新数据。
+
+### 本地预览静态网站
+
+本地只用于预览，不承担定时采集：
 
 ```bash
-# 可选：配置 GitHub Token，提升 API 限额
-export GITHUB_TOKEN="你的 GitHub Token"       # Linux / macOS
-# PowerShell: $env:GITHUB_TOKEN="你的 GitHub Token"
-
-# 启动本地网站
-python web.py
-```
-
-浏览器打开 **http://127.0.0.1:8765**。Web 服务启动后会立即执行一次采集，之后**每 2 小时自动采集一次**；不需要另外配置 cron。页面右上角会显示定时任务状态、上次结果和下次运行时间。右上角的刷新按钮仍可随时手动触发采集，手动任务与定时任务共用互斥锁，不会并发写入数据库。
-
-定时任务只在 `web.py` 进程运行期间有效。关闭终端或停止 Web 服务后，任务也会停止；需要长期运行时，建议用 systemd、macOS launchd 或 Windows 任务计划程序让 Web 服务常驻。
-
-可选参数：
-
-```bash
-# 默认每 2 小时自动采集，首次启动立即采集
-python web.py
-
-# 改为每 3 小时采集，每轮最多发现/更新 50 个项目
-python web.py --interval-hours 3 --limit 50
-```
-
-也可以先在终端执行：
-
-```bash
-python ghtrend.py doctor
 python ghtrend.py update --limit 30
-python web.py
+python build_site.py --db ghtrend.sqlite3 --output dist
+python -m http.server 8765 --directory dist
 ```
 
-Web 页面提供：
-- 3 天、7 天、30 天、90 天增长排行榜；按新增 Star 排序。
-- 项目搜索、分类筛选、编程语言筛选。
-- 项目详情抽屉：GitHub URL、简介、Topics、累计 Star、Fork、日均增长。
-- 增长时间线：每日新增 Star 柱状图 + 7 日移动平均线（3 天周期使用 3 日移动平均）。
-- 内置后台调度器：启动时立即采集，默认每 2 小时自动更新；可通过 `--interval-hours` 调整。
-- 顶栏显示自动采集状态、下次执行时间、上次完成时间和执行结果。
-- 手动刷新与定时任务互斥，避免重复采集并发写数据库。
-- 数据缺失会明确显示，不会将未采集日期伪装成 0。
-- 复用现有 `ghtrend.sqlite3`，不会覆盖或删除历史数据。
+浏览器打开 http://127.0.0.1:8765。
 
-默认仅监听 `127.0.0.1`，只供本机访问。不要在不可信网络中直接使用 `--host 0.0.0.0` 暴露服务。
+GitHub Actions Runner 是临时环境，任务完成后会销毁；GitHub Pages 托管生成后的静态文件，不会运行 `web.py`。SQLite 历史数据通过 Actions Cache 在多次运行之间恢复，另外可从每次运行的 Artifact 下载备份。
 
 ## 项目文件
 

@@ -1,15 +1,18 @@
-name: GitHub Trends Collector
+name: GitHub Trends Collector & Pages
 
 on:
-  # Run once when this workflow is added/updated, then continue on the schedule.
   push:
     branches:
       - main
     paths:
-      - .github/workflows/daily.yml
-  # GitHub-hosted runners execute the collector every two hours (UTC).
-  # Minute 17 avoids the busiest top-of-hour scheduling window.
+      - ".github/workflows/daily.yml"
+      - "ghtrend.py"
+      - "web.py"
+      - "build_site.py"
+      - "web/**"
+      - "tests/**"
   schedule:
+    # Every two hours at minute 17 (UTC); GitHub may delay scheduled jobs.
     - cron: "17 */2 * * *"
   workflow_dispatch:
     inputs:
@@ -21,14 +24,16 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-  group: github-trends-collector
+  group: github-pages
   cancel-in-progress: false
 
 jobs:
-  collect:
-    name: Collect GitHub trends
+  build:
+    name: Collect data and build static site
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -40,22 +45,29 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Restore previous SQLite database
         uses: actions/cache/restore@v4
         with:
           path: ghtrend.sqlite3
-          key: github-trends-db-${{ github.run_id }}
+          key: github-trends-db-\${{ github.run_id }}
           restore-keys: |
             github-trends-db-
 
       - name: Run automated tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m unittest discover -s tests -v
+          node --check web/app.js
 
       - name: Collect repositories and Star history
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TREND_TOKEN || github.token }}
+          GITHUB_TOKEN: \${{ secrets.GH_TREND_TOKEN || github.token }}
         run: |
-          LIMIT="${{ inputs.limit || '30' }}"
+          LIMIT="\${{ inputs.limit || '30' }}"
           python ghtrend.py update --limit "$LIMIT"
 
       - name: Checkpoint SQLite database
@@ -78,14 +90,34 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ghtrend.sqlite3
-          key: github-trends-db-${{ github.run_id }}
+          key: github-trends-db-\${{ github.run_id }}
 
-      - name: Upload report and database snapshot
+      - name: Build GitHub Pages static website
+        run: python build_site.py --db ghtrend.sqlite3 --output dist --limit 500
+
+      - name: Upload report and SQLite snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: github-trends-${{ github.run_id }}
+          name: github-trends-\${{ github.run_id }}
           path: |
             daily-report.txt
             ghtrend.sqlite3
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: \${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy static website
+        id: deployment
+        uses: actions/deploy-pages@v4
