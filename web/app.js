@@ -63,7 +63,11 @@ function fillSelect(id, options, label) {
   const values = ['<option value="">' + label + '</option>', ...options.map(v => '<option value="' + esc(v) + '">' + esc(v) + '</option>')];
   select.innerHTML = values.join('');
   if (options.includes(current)) select.value = current;
-  else select.value = '';
+  else {
+    select.value = '';
+    if (id === 'category-filter') state.category = '';
+    if (id === 'language-filter') state.language = '';
+  }
 }
 
 function renderRows(rows) {
