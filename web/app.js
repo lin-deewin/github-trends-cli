@@ -5,6 +5,7 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&am
 const periodNames = {'3d':'最近 3 天','7d':'最近 7 天','1m':'最近 1 个月','3m':'最近 3 个月'};
 const ACTIONS_URL = 'https://github.com/lin-deewin/github-trends-cli/actions/workflows/daily.yml';
 let searchTimer;
+let previousFocus = null;
 
 function initials(name) { return name.split('/').map(x => x[0] || '').join('').slice(0, 2).toUpperCase(); }
 
@@ -12,7 +13,7 @@ function sparkline(values) {
   if (!Array.isArray(values) || values.length !== 7 || values.some(v => v == null)) return '<span class="language-cell">—</span>';
   const max = Math.max(1, ...values), min = Math.min(0, ...values), range = Math.max(1, max - min);
   const points = values.map((v, i) => ((i / 6) * 78 + 2) + ',' + (23 - ((v - min) / range) * 19)).join(' ');
-  return '<svg class="sparkline" viewBox="0 0 82 27" aria-label="最近七天每日新增 Star"><polyline points="' + points + '" fill="none" stroke="#9a90e9" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return '<svg class="sparkline" viewBox="0 0 82 27" role="img" aria-label="最近七天每日新增 Star"><polyline points="' + points + '" fill="none" stroke="#8f87dc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function loadDashboard() {
@@ -83,7 +84,7 @@ function renderRows(rows) {
       '<td class="language-cell"><i class="language-dot"></i>' + esc(row.language) + '</td>' +
       '<td class="star-number">' + number(row.total_stars) + '</td>' +
       '<td class="growth-number">+' + number(row.gain) + '</td>' +
-      '<td>' + sparkline(row.sparkline) + '</td><td class="row-arrow">›</td></tr>'
+      '<td>' + sparkline(row.sparkline) + '</td><td><svg class="row-arrow" viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6"/></svg></td></tr>'
   ).join('');
   $('repo-table').querySelectorAll('tr[data-repo]').forEach(row => {
     row.addEventListener('click', () => openDetail(row.dataset.repo));
@@ -94,16 +95,21 @@ function renderRows(rows) {
 }
 
 function openDrawer() {
+  previousFocus = document.activeElement;
   $('detail-drawer').classList.add('open');
   $('drawer-backdrop').classList.add('open');
   $('detail-drawer').setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  $('close-drawer').focus();
 }
 function closeDrawer() {
   $('detail-drawer').classList.remove('open');
   $('drawer-backdrop').classList.remove('open');
   $('detail-drawer').setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
+  const target = previousFocus;
+  previousFocus = null;
+  if (target && typeof target.focus === 'function') target.focus();
 }
 
 function openDetail(name) {
@@ -187,7 +193,11 @@ function bindEvents() {
   document.querySelectorAll('.period-button').forEach(button => button.addEventListener('click', () => {
     if (state.period === button.dataset.period) return;
     state.period = button.dataset.period;
-    document.querySelectorAll('.period-button').forEach(b => b.classList.toggle('active', b === button));
+    document.querySelectorAll('.period-button').forEach(b => {
+      const active = b === button;
+      b.classList.toggle('active', active);
+      b.setAttribute('aria-pressed', String(active));
+    });
     loadDashboard();
     if (state.selected) openDetail(state.selected);
   }));
@@ -202,7 +212,17 @@ function bindEvents() {
   });
   $('close-drawer').addEventListener('click', closeDrawer);
   $('drawer-backdrop').addEventListener('click', closeDrawer);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+  document.addEventListener('keydown', e => {
+    const drawer = $('detail-drawer');
+    if (!drawer.classList.contains('open')) return;
+    if (e.key === 'Escape') { closeDrawer(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = Array.from(drawer.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+    if (!focusable.length) { e.preventDefault(); drawer.focus(); return; }
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
 }
 
 async function init() {
@@ -220,6 +240,8 @@ async function init() {
     loadDashboard();
   } catch (error) {
     $('connection-label').textContent = '数据加载失败';
+    $('scheduler-label').textContent = '暂时无法连接数据';
+    $('scheduler-label').title = error.message;
     $('repo-table').innerHTML = '<tr><td colspan="8" class="empty-cell">' + esc(error.message) + '</td></tr>';
   }
 }
